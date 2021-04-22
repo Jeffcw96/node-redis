@@ -14,7 +14,7 @@ client.on('error', err => {
     console.log('Error ' + err);
 });
 
-client.on('connect',()=>{
+client.on('connect', () => {
     console.log('Redis is connected');
 });
 
@@ -33,11 +33,11 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cors())
 
 
-app.get("/", (req, res)=>{
+app.get("/", (req, res) => {
     res.send("it's ok")
 })
 
-app.get("/testRedis", async(_,res)=>{
+app.get("/testRedis", async (_, res) => {
     try {
         let dummyJson = {}
         dummyJson.name = "Jeff"
@@ -45,16 +45,16 @@ app.get("/testRedis", async(_,res)=>{
         dummyJson.passion = "Technology"
         dummyJson.isAlive = true
 
-        const promises = [clientRPUSH("jeff:list",JSON.stringify(dummyJson)),
-                          clientHMSET("jeff:hash",dummyJson),
-                          clientSET("jeff:cache",JSON.stringify(dummyJson),'EX',60),
-                          clientEXPIRE("jeff:list",60)]
+        const promises = [clientRPUSH("data:list", JSON.stringify(dummyJson)),
+        clientHMSET("data:hash", dummyJson),
+        clientSET("data:cache", JSON.stringify(dummyJson), 'EX', 60),
+        clientEXPIRE("data:list", 60)]
         const result = await Promise.all(promises)
 
         console.log(result)
 
-        checkExpiryTime("jeff:cache","string")
-        checkExpiryTime("jeff:list","list")
+        checkExpiryTime("jeff:cache", "string")
+        checkExpiryTime("jeff:list", "list")
 
         res.send("set ok")
 
@@ -64,18 +64,41 @@ app.get("/testRedis", async(_,res)=>{
     }
 })
 
-app.get("/getTestRedis", async(_,res)=>{
+const middleware = async (req, res, next) => {
     try {
-        const listData = await clientLRANGE("jeff:list",0,-1);
+        // const data = await clientGET("github:position")
+        // if (!data) {
+        //     next()
+        //     return
+        // }
+        const redisData = await clientLRANGE("github:positionList", 0, -1);
+
+        if (redisData.length === 0) {
+            next()
+            return
+        }
+
+        const data = await JSONParse(redisData);
+        res.json({ data })
+
+    } catch (error) {
+        console.error(error.message)
+        res.status(500).send('Server Error')
+    }
+}
+
+app.get("/getTestRedis", async (_, res) => {
+    try {
+        const listData = await clientLRANGE("jeff:list", 0, -1);
         const hashData = await clientHGETALL("jeff:hash");
 
         const listDataUnmarshal = await JSONParse(listData);
 
 
-        console.log("listDataUnmarshal",listDataUnmarshal);
+        console.log("listDataUnmarshal", listDataUnmarshal);
 
 
-        res.json({listData,hashData,listDataUnmarshal})
+        res.json({ listData, hashData, listDataUnmarshal })
 
     } catch (error) {
         console.error(error.message)
@@ -83,24 +106,24 @@ app.get("/getTestRedis", async(_,res)=>{
     }
 })
 
-function JSONParse(data){
-    return new Promise((resolve,reject)=>{
+function JSONParse(data) {
+    return new Promise((resolve, reject) => {
         try {
             resolve(JSON.parse(data))
         } catch (error) {
             reject(error)
-        }        
+        }
     })
 }
 
 
-function checkExpiryTime(key,label = ""){
+function checkExpiryTime(key, label = "") {
     try {
-        const interval = setInterval(async() => {
+        const interval = setInterval(async () => {
             let timer = await clientTTL(key)
-            console.log("timer " + label,timer)
+            console.log("timer " + label, timer)
 
-            if(timer === -2){
+            if (timer === -2) {
                 clearInterval(interval)
             }
         }, 1000);
@@ -110,13 +133,20 @@ function checkExpiryTime(key,label = ""){
 
 }
 
-app.get("/getJobListing", async(req,res)=>{
+app.get("/getGithubJobListing", middleware, async (req, res) => {
     try {
         const url = `https://jobs.github.com/positions.json?description=api`
         const response = await axios.get(url)
-        await clientSET("github:position", JSON.stringify(response.data),'EX',120)
-        checkExpiryTime("github:position","list")
-        res.json({data: response.data})
+        // await clientSET("github:position", JSON.stringify(response.data), 'EX', 30)
+        await clientRPUSH("github:positionList", JSON.stringify(response.data))
+        await clientEXPIRE("github:positionList", 120)
+        console.log("aa")
+        // //will need some time and not recommend for json array
+        // for (let i = 0; i < response.data.length; i++) {
+        //     await clientHMSET("github:positionHash", response.data[i])
+        // }
+        checkExpiryTime("github:positionList", "list")
+        res.json({ data: response.data })
 
     } catch (error) {
         console.error(error.message)
@@ -126,21 +156,7 @@ app.get("/getJobListing", async(req,res)=>{
 
 
 
-app.get("/getJobListingFromRedis", async(req,res)=>{
-    try {
-        const data = await clientGET("github:position")
-        const listDataUnmarshal = await JSONParse(data);
 
-
-        res.json({listDataUnmarshal})
-
-    } catch (error) {
-        console.error(error.message)
-        res.status(500).send('Server Error')
-    }
-})
-
-
-app.listen(process.env.PORT || 1117, ()=>{
+app.listen(process.env.PORT || 1117, () => {
     console.log("server is running at 1117")
 })
