@@ -3,6 +3,7 @@ const axios = require('axios');
 const redis = require('redis');
 const app = express()
 const util = require('util');
+
 const client = redis.createClient({
     host: 'localhost',
     port: 6379,
@@ -54,11 +55,11 @@ function JSONParse(data) {
 }
 
 
-function checkExpiryTime(key, label = "") {
+function checkExpiryTime(key) {
     try {
         const interval = setInterval(async () => {
             let timer = await clientTTL(key)
-            console.log("timer " + label, timer)
+            console.log("timer ", timer)
 
             if (timer === -2) {
                 clearInterval(interval)
@@ -67,7 +68,6 @@ function checkExpiryTime(key, label = "") {
     } catch (error) {
         console.error(error.message)
     }
-
 }
 
 app.get("/getGithubJobListing", middleware, async (req, res) => {
